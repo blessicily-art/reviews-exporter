@@ -1,43 +1,40 @@
 import io
 from datetime import datetime, date, timezone
-
 import pandas as pd
 import requests
 import streamlit as st
 
-# --- opzionale: solo quando usi il tab Google Play ---
 try:
     from google_play_scraper import reviews, Sort
     GP_OK = True
 except Exception:
     GP_OK = False
 
-st.set_page_config(page_title="Reviews Exporter • Google Play & Apple", page_icon="📥", layout="centered")
+st.set_page_config(page_title="Reviews Exporter", page_icon="📥", layout="centered")
 st.title("📥 Reviews Exporter")
-st.caption("Google Play Store & Apple App Store → Excel (.xlsx) — solo inserimento parametri, nessuna modifica al codice")
+st.caption("Extract reviews from Google Play & Apple App Store → Excel (.xlsx)")
 
 TAB_GOOGLE, TAB_APPLE = st.tabs(["Google Play", "Apple App Store"])
 
 
 # ---------------------------
-# Helper comuni
+# Helpers
 # ---------------------------
 def sanitize_filename(s: str) -> str:
     return "".join(c if c.isalnum() or c in ("-", "_", ".") else "_" for c in s)
 
-def to_excel_download(df: pd.DataFrame, filename: str) -> None:
+
+def to_excel_download(df: pd.DataFrame, filename: str, key: str):
     buffer = io.BytesIO()
     df.to_excel(buffer, index=False)
     st.download_button(
-        label="⬇️ Scarica Excel",
+        label="⬇️ Download Excel",
         data=buffer.getvalue(),
         file_name=filename,
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
+        key=key,
     )
-
-def daterange_to_strings(since: date, until: date):
-    return since.isoformat(), until.isoformat()
 
 
 # ---------------------------
@@ -46,41 +43,44 @@ def daterange_to_strings(since: date, until: date):
 with TAB_GOOGLE:
     st.subheader("Google Play")
     if not GP_OK:
-        st.info("Installa la dipendenza `google-play-scraper` su Streamlit Cloud tramite `requirements.txt`.")
+        st.info("⚠️ Missing dependency: google-play-scraper (check requirements.txt)")
+
     col1, col2 = st.columns(2)
-    app_id_g = col1.text_input("APP_ID (es. com.github.android, com.whatsapp)", value="", placeholder="com.example.app")
-    lang_g = col2.text_input("Lingua (lang)", value="it")
+    app_id_g = col1.text_input(
+        "APP_ID (e.g. it.enelmobile, com.whatsapp)",
+        value="",
+        placeholder="com.example.app",
+        key="gp_app_id",
+    )
+    lang_g = col2.text_input("Language (lang)", value="it", key="gp_lang")
 
     col3, col4 = st.columns(2)
-    country_g = col3.text_input("Country (store)", value="it")
-    since_g = col4.date_input("SINCE_DATE (inclusa)", value=date(2024, 8, 1))
-    until_g = st.date_input("UNTIL_DATE (esclusa)", value=date(2025, 9, 1))
+    country_g = col3.text_input("Country (store)", value="it", key="gp_country")
+    since_g = col4.date_input("SINCE_DATE (included)", value=date(2024, 8, 1), key="gp_since")
+    until_g = st.date_input("UNTIL_DATE (excluded)", value=date(2025, 9, 1), key="gp_until")
 
-    run_g = st.button("Estrai e genera Excel (Google Play)", use_container_width=True)
+    run_g = st.button("Extract & Generate Excel (Google Play)", use_container_width=True, key="gp_run")
 
     if run_g:
         if not app_id_g.strip():
-            st.error("APP_ID è obbligatorio (es. com.github.android).")
+            st.error("APP_ID is required (e.g. it.enelmobile).")
         elif not GP_OK:
-            st.error("Modulo `google-play-scraper` non disponibile. Controlla `requirements.txt`.")
+            st.error("Module google-play-scraper not installed.")
         else:
-            since_str, until_str = daterange_to_strings(since_g, until_g)
             try:
-                SINCE_DATE = datetime.fromisoformat(since_str).replace(tzinfo=timezone.utc)
-                UNTIL_DATE = datetime.fromisoformat(until_str).replace(tzinfo=timezone.utc)
+                SINCE_DATE = datetime.combine(since_g, datetime.min.time()).replace(tzinfo=timezone.utc)
+                UNTIL_DATE = datetime.combine(until_g, datetime.min.time()).replace(tzinfo=timezone.utc)
                 if UNTIL_DATE <= SINCE_DATE:
-                    st.error("UNTIL_DATE deve essere successiva a SINCE_DATE.")
+                    st.error("UNTIL_DATE must be after SINCE_DATE.")
                 else:
-                    # Pagina le recensioni ordinate dalle più recenti
                     all_rows, token = [], None
-                    BATCH = 200
                     while True:
                         chunk, token = reviews(
                             app_id_g.strip(),
                             lang=lang_g.strip() or "it",
                             country=country_g.strip() or "it",
                             sort=Sort.NEWEST,
-                            count=BATCH,
+                            count=200,
                             continuation_token=token,
                         )
                         if not chunk:
@@ -91,7 +91,6 @@ with TAB_GOOGLE:
                             d = r.get("at")
                             if d is None:
                                 continue
-                            # normalizza a UTC-aware
                             if d.tzinfo is None:
                                 d = d.replace(tzinfo=timezone.utc)
                             else:
@@ -112,11 +111,12 @@ with TAB_GOOGLE:
                         if stop or token is None:
                             break
 
-                    df = pd.DataFrame(all_rows, columns=["Date", "Text", "Rating"]).sort_values("Date", ascending=False).reset_index(drop=True)
-                    st.success(f"Recensioni trovate: {len(df)}")
-                    st.dataframe(df.head(10), use_container_width=True)
+                    df = pd.DataFrame(all_rows, columns=["Date", "Text", "Rating"]) \
+                        .sort_values("Date", ascending=False).reset_index(drop=True)
+                    st.success(f"Reviews collected: {len(df)}")
+                    st.dataframe(df.head(10), use_container_width=True, key="gp_table")
                     fname = f"google_play_{sanitize_filename(app_id_g)}_{SINCE_DATE.date()}_{UNTIL_DATE.date()}.xlsx"
-                    to_excel_download(df, fname)
+                    to_excel_download(df, fname, key="gp_download")
             except Exception as e:
                 st.exception(e)
 
@@ -126,18 +126,18 @@ with TAB_GOOGLE:
 # ---------------------------
 with TAB_APPLE:
     st.subheader("Apple App Store")
+
     col1, col2 = st.columns(2)
-    app_id_a = col1.text_input("APP_ID numerico (es. 310633997)", value="", placeholder="solo cifre")
-    country_a = col2.text_input("Country (store)", value="it")
+    app_id_a = col1.text_input("APP_ID numeric (e.g. 310633997)", value="", placeholder="digits only", key="ap_app_id")
+    country_a = col2.text_input("Country (store)", value="it", key="ap_country")
 
     col3, col4 = st.columns(2)
-    since_a = col3.date_input("SINCE_DATE (inclusa)", value=date(2024, 8, 1), key="apple_since")
-    until_a = col4.date_input("UNTIL_DATE (esclusa)", value=date(2025, 9, 1), key="apple_until")
+    since_a = col3.date_input("SINCE_DATE (included)", value=date(2024, 8, 1), key="ap_since")
+    until_a = col4.date_input("UNTIL_DATE (excluded)", value=date(2025, 9, 1), key="ap_until")
 
-    run_a = st.button("Estrai e genera Excel (Apple)", use_container_width=True)
+    run_a = st.button("Extract & Generate Excel (Apple)", use_container_width=True, key="ap_run")
 
     def parse_apple_date(value):
-        """Restituisce datetime naive UTC a partire dal campo 'updated.label' del feed."""
         if isinstance(value, datetime):
             d = value
         else:
@@ -157,14 +157,13 @@ with TAB_APPLE:
 
     if run_a:
         if not app_id_a.strip().isdigit():
-            st.error("APP_ID deve essere numerico (es. 310633997).")
+            st.error("APP_ID must be numeric (e.g. 310633997).")
         else:
-            since_str, until_str = daterange_to_strings(since_a, until_a)
             try:
-                SINCE_DATE = datetime.fromisoformat(since_str)
-                UNTIL_DATE = datetime.fromisoformat(until_str)
+                SINCE_DATE = datetime.combine(since_a, datetime.min.time())
+                UNTIL_DATE = datetime.combine(until_a, datetime.min.time())
                 if UNTIL_DATE <= SINCE_DATE:
-                    st.error("UNTIL_DATE deve essere successiva a SINCE_DATE.")
+                    st.error("UNTIL_DATE must be after SINCE_DATE.")
                 else:
                     all_rows, page = [], 1
                     while True:
@@ -209,13 +208,14 @@ with TAB_APPLE:
 
                         page += 1
 
-                    df = pd.DataFrame(all_rows, columns=["Date", "Title", "Text", "Rating"]).sort_values("Date", ascending=False).reset_index(drop=True)
-                    st.success(f"Recensioni trovate: {len(df)}")
-                    st.dataframe(df.head(10), use_container_width=True)
+                    df = pd.DataFrame(all_rows, columns=["Date", "Title", "Text", "Rating"]) \
+                        .sort_values("Date", ascending=False).reset_index(drop=True)
+                    st.success(f"Reviews collected: {len(df)}")
+                    st.dataframe(df.head(10), use_container_width=True, key="ap_table")
                     fname = f"apple_store_{sanitize_filename(app_id_a)}_{SINCE_DATE.date()}_{UNTIL_DATE.date()}.xlsx"
-                    to_excel_download(df, fname)
+                    to_excel_download(df, fname, key="ap_download")
             except Exception as e:
                 st.exception(e)
 
 st.divider()
-st.caption("Suggerimenti: usa intervalli realistici e l'APP_ID corretto (Android: packageName; Apple: ID numerico in URL).")
+st.caption("Use realistic date ranges and correct App IDs (Android: package name, Apple: numeric ID).")
