@@ -48,7 +48,7 @@ with TAB_GOOGLE:
     if not GP_OK:
         st.info("Installa la dipendenza `google-play-scraper` su Streamlit Cloud tramite `requirements.txt`.")
     col1, col2 = st.columns(2)
-    app_id_g = col1.text_input("APP_ID (es. it.enelmobile, com.whatsapp)", value="", placeholder="com.example.app")
+    app_id_g = col1.text_input("APP_ID (es. com.github.android, com.whatsapp)", value="", placeholder="com.example.app")
     lang_g = col2.text_input("Lingua (lang)", value="it")
 
     col3, col4 = st.columns(2)
@@ -60,7 +60,7 @@ with TAB_GOOGLE:
 
     if run_g:
         if not app_id_g.strip():
-            st.error("APP_ID è obbligatorio (es. it.enelmobile).")
+            st.error("APP_ID è obbligatorio (es. com.github.android).")
         elif not GP_OK:
             st.error("Modulo `google-play-scraper` non disponibile. Controlla `requirements.txt`.")
         else:
