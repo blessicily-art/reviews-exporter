@@ -198,7 +198,7 @@ with TAB_APPLE:
     st.subheader("Apple App Store")
 
     col1, col2 = st.columns(2)
-    app_id_a = col1.text_input("APP_ID numeric (e.g. 310633997)", value="", placeholder="digits only", key="ap_app_id")
+    app_id_a = col1.text_input("APP_ID numeric (e.g. 310633997, 329009329)", value="", placeholder="digits only", key="ap_app_id")
     country_a = col2.text_input("Country (store)", value="it", key="ap_country")
 
     col3, col4 = st.columns(2)
