@@ -3,6 +3,74 @@ from datetime import datetime, date, timezone
 import pandas as pd
 import requests
 import streamlit as st
+import time
+
+def _now_ts() -> float:
+    return time.time()
+
+def _timeout_seconds() -> int:
+    # Legge da secrets, default 30 minuti
+    try:
+        minutes = int(st.secrets.get("AUTH", {}).get("SESSION_TIMEOUT_MINUTES", 30))
+    except Exception:
+        minutes = 30
+    return minutes * 60
+
+def require_login():
+    # Stato iniziale
+    if "auth_ok" not in st.session_state:
+        st.session_state.auth_ok = False
+    if "auth_user" not in st.session_state:
+        st.session_state.auth_user = None
+    if "auth_last_seen" not in st.session_state:
+        st.session_state.auth_last_seen = 0.0
+
+    # Se già loggato, verifica timeout
+    if st.session_state.auth_ok:
+        if _now_ts() - float(st.session_state.auth_last_seen) > _timeout_seconds():
+            # timeout → logout automatico
+            st.session_state.auth_ok = False
+            st.session_state.auth_user = None
+            st.session_state.auth_last_seen = 0.0
+            st.warning("Session expired. Please log in again.")
+            st.rerun()
+        else:
+            # aggiorna last_seen e lascia passare
+            st.session_state.auth_last_seen = _now_ts()
+            return
+
+    # UI Login
+    st.title("🔐 Login")
+    st.caption("Enter your credentials to access the app.")
+
+    username = st.text_input("Username", key="login_user")
+    password = st.text_input("Password", type="password", key="login_pass")
+
+    if st.button("Login", use_container_width=True, key="login_btn"):
+        users = st.secrets.get("AUTH_USERS", {})
+        expected_pw = users.get(username)
+        if expected_pw and password == expected_pw:
+            st.session_state.auth_ok = True
+            st.session_state.auth_user = username
+            st.session_state.auth_last_seen = _now_ts()
+            st.rerun()
+        else:
+            st.error("Wrong username or password.")
+
+    st.stop()
+
+def render_auth_header():
+    """Header con username + logout"""
+    if st.session_state.get("auth_ok"):
+        with st.container():
+            col1, col2 = st.columns([0.75, 0.25])
+            col1.markdown(f"**Logged in as:** `{st.session_state.get('auth_user')}`")
+            if col2.button("Logout", use_container_width=True, key="logout_btn"):
+                st.session_state.auth_ok = False
+                st.session_state.auth_user = None
+                st.session_state.auth_last_seen = 0.0
+                st.rerun()
+        st.divider()
 
 try:
     from google_play_scraper import reviews, Sort
@@ -11,6 +79,8 @@ except Exception:
     GP_OK = False
 
 st.set_page_config(page_title="Reviews Exporter", page_icon="📥", layout="centered")
+require_login()
+render_auth_header()
 st.title("📥 Reviews Exporter")
 st.caption("Extract reviews from Google Play & Apple App Store → Excel (.xlsx)")
 
